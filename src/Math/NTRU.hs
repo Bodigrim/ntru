@@ -11,75 +11,90 @@ Techniques Based on Hard Problems over Lattices (IEEE Std 1363.1-2008). It is de
 of SecurityInnovations, available <https://www.securityinnovation.com/products/encryption-libraries/ntru-crypto/ here>.
 -}
 
-
+{-# OPTIONS_GHC -fno-warn-name-shadowing -fno-warn-unused-matches -fno-warn-unused-local-binds -fno-warn-incomplete-patterns -fno-warn-type-defaults #-}
 
 module Math.NTRU (keyGen, encrypt, decrypt, genParams, ParamSet(..)) where
 
 import Data.Digest.Pure.SHA
 import Data.List.Split
-import Data.Sequence as Seq (index, update, fromList, Seq)
-import Data.Foldable as L (toList)
+import Data.Sequence as Seq (index, update, Seq)
 import Crypto.Random
 import System.Random
-import Math.Polynomial
-import Math.NumberTheory.Moduli
+import Data.Poly hiding (toPoly)
+import qualified Data.Poly as Poly
+import GHC.Exts
+import GHC.Integer.GMP.Internals
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 
+{- Compatibility layer -}
+
+powPoly :: VPoly Integer -> Int -> VPoly Integer
+powPoly = (^)
+
+x :: VPoly Integer
+x = X
+
+polyDegree :: VPoly Integer -> Int
+polyDegree xs = case leading xs of
+  Nothing -> minBound
+  Just (k, _) -> fromIntegral k
+
+zero :: VPoly Integer
+zero = 0
+
+one :: VPoly Integer
+one = 1
+
+scalePoly :: Integer -> VPoly Integer -> VPoly Integer
+scalePoly n = scale 0 n
+
+polyIsZero :: VPoly Integer -> Bool
+polyIsZero = (== 0)
 
 {- Polynomial Operations -}
 
--- | Poly to List
-fromPoly :: Poly Integer -> [Integer]
-fromPoly = polyCoeffs LE
+-- | VPoly to List
+fromPoly :: VPoly Integer -> [Integer]
+fromPoly = toList . unPoly
 
--- | List to Poly
-toPoly :: [Integer] -> Poly Integer
-toPoly = poly LE
+-- | List to VPoly
+toPoly :: [Integer] -> VPoly Integer
+toPoly = Poly.toPoly . fromList
 
 -- | Retrive the coefficient of p corresponding to the (x^i) term
-polyCoef :: Poly Integer -> Int -> Integer
+polyCoef :: VPoly Integer -> Int -> Integer
 polyCoef p i = fromPoly p !! i
 
--- | Useful for syntax. Allows for poly + poly or poly * poly.
--- | Note that for ring multiplication, reduceDegree must be called
-instance (Num a, Eq a) => Num (Poly a) where
-  f + g = addPoly f g
-  f * g = multPoly f g
-  negate = negatePoly
-  abs = undefined
-  signum = undefined
-  fromInteger = undefined
-
 -- | Allows for polynomial multipliction in the ring of size n: reduceDegree n (a * b) = a * b in the ring. Assumes: (degree f) <= 2n
-reduceDegree :: Int -> Poly Integer -> Poly Integer
+reduceDegree :: Int -> VPoly Integer -> VPoly Integer
 reduceDegree n f =
   let (f1,f2) = splitAt n (fromPoly f)
   in toPoly f1 + toPoly f2
 
 -- | Reduces all of the polynomial's coefficents mod q
-polyMod :: Integer -> Poly Integer -> Poly Integer
+polyMod :: Integer -> VPoly Integer -> VPoly Integer
 polyMod q f = toPoly $ map (`mod` q) (fromPoly f)
 
 -- | Same as polyMod, but chooses representative group values in Z/nZ to be in (-q/2, q/2] instead of [0,q-1]
-polyModInterval :: Integer -> Poly Integer -> Poly Integer
+polyModInterval :: Integer -> VPoly Integer -> VPoly Integer
 polyModInterval q f = toPoly $ map (\x' -> intervalReduce $ x' `mod` q) (fromPoly f)
   where intervalReduce x' = if x' <= (q `div` 2) then x' else x' - q
 
 -- | PolyMod when q is big
-polyBigMod :: Integer -> Poly Integer -> Poly Integer
+polyBigMod :: Integer -> VPoly Integer -> VPoly Integer
 polyBigMod q p = toPoly $ map fromIntegral $ fromPoly $ polyMod q $ toPoly $ map fromIntegral $ fromPoly p
 
 -- | Creates the polynomial x^n
-xPow :: Int -> Poly Integer
+xPow :: Int -> VPoly Integer
 xPow = powPoly x
 
 
 {- Key Generation -}
 
 -- | 6.3.3.1 Divides one polynomial by another mod p: let (q,r) = divPolyMod p a b; ((b * q) + r) `mod` p = a; (degree r) < (degree b)
-divPolyMod :: Integer -> Poly Integer -> Poly Integer -> (Poly Integer, Poly Integer)
+divPolyMod :: Integer -> VPoly Integer -> VPoly Integer -> (VPoly Integer, VPoly Integer)
 divPolyMod p a b =
   let n = polyDegree b in
   let u = inverseMod (polyCoef b n) p in
@@ -95,7 +110,7 @@ divPolyMod p a b =
       divLoop p' b' n' u' q' r'
 
 -- | 6.3.3.2 Finds the extended GCD mod p: let (d,u) = extendedEuclidean p a b; if d == 1, then (u * a) `mod` p = 1
-extendedEuclidean :: Integer -> Poly Integer -> Poly Integer -> (Poly Integer, Poly Integer)
+extendedEuclidean :: Integer -> VPoly Integer -> VPoly Integer -> (VPoly Integer, VPoly Integer)
 extendedEuclidean p a b = extendedEuclideanLoop p one a zero b
   where
     extendedEuclideanLoop p' u d v1 v3
@@ -106,7 +121,7 @@ extendedEuclidean p a b = extendedEuclideanLoop p one a zero b
         extendedEuclideanLoop p' v1 v3 t1 t3
 
 -- | Generates Polynomials and Attempts to Find Inverses Until Success: let (a,u) = findInvertible params; (a * u) `mod` 2 = 1
-findInvertible :: ParamSet -> IO (Poly Integer, Poly Integer)
+findInvertible :: ParamSet -> IO (VPoly Integer, VPoly Integer)
 findInvertible params = do
     let n =  getN params
     let df = getDf params
@@ -117,7 +132,7 @@ findInvertible params = do
     if d == one then return (a, u) else findInvertible params
 
 -- | 6.3.3.4 Raises Polynomial Inverse mod 2 to mod 2^11; let (a, b) = findInvertible; (a * (inverseLift a b (degree a))) `mod` 2048 = 1
-inverseLift :: Poly Integer -> Poly Integer -> Int -> Integer -> Poly Integer
+inverseLift :: VPoly Integer -> VPoly Integer -> Int -> Integer -> VPoly Integer
 inverseLift a b deg = inverseLift' a b deg (2 :: Integer) (11 :: Integer) where
   inverseLift' a b deg n e q
     | e == 0 = polyMod (2 ^ q) b
@@ -155,10 +170,10 @@ genSData h msg b params =
 bpgm :: [Integer] -> ParamSet -> [Integer]
 bpgm seed params =
   let (i, s) = igf ([], [], 0) seed params in
-  let r = Seq.update i 1 $ Seq.fromList $ replicate (getN params) 0 in
+  let r = Seq.update i 1 $ fromList $ replicate (getN params) 0 in
   let t = getDr params in
   let r' = rlooper s 1 r (t - 1) params in
-  L.toList $ rlooper s (-1) r' t params
+  toList $ rlooper s (-1) r' t params
 
 -- | Creates the sequence with the proper -1's and 1's
 rlooper :: ([Integer], [Integer], Integer) -> Integer -> Seq.Seq Integer -> Int -> ParamSet -> Seq.Seq Integer
@@ -357,9 +372,9 @@ checkValid m _ _ = Just m
 
 -- | Calculate the modular inverse of x and y: ((inverseMod x y) * x) `mod` y = 1
 inverseMod :: Integer -> Integer -> Integer
-inverseMod x y = case invertMod (fromIntegral x) (fromIntegral y) of
-  Just n -> fromIntegral n
-  _ -> error "Could not calculate inverseMod"
+inverseMod x y = case recipModInteger (fromIntegral x) (fromIntegral y) of
+  0 -> error "Could not calculate inverseMod"
+  n -> n
 
 -- | Generate a random ByteString
 randByteString :: Int -> IO [Integer]
@@ -433,7 +448,7 @@ bitsToInt b = packByte 1 (reverse b)
       | otherwise = n * head b + packByte (n * 2) (tail b)
 
 -- | Generates a random polynomial of degree < n with pos 1's and neg -1's. Assumes pos + neg <= n
-genRandPoly :: Int -> Int -> Int -> IO (Poly Integer)
+genRandPoly :: Int -> Int -> Int -> IO (VPoly Integer)
 genRandPoly n pos neg = do
   poly <- setRandValues [] n pos neg
   return $ toPoly poly
