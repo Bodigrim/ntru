@@ -15,6 +15,7 @@ extra-source-files:
   README.md
   examples/sampleGeneralNTRU.hs
   examples/sampleSpecificNTRU.hs
+tested-with: GHC == 8.0.2, GHC == 8.2.2, GHC == 8.4.4, GHC == 8.6.5, GHC == 8.8.1
 
 library
   exposed-modules:
