@@ -9,17 +9,17 @@ You can build it by running:
 cabal install NTRU
 ```
 
-or by downloading it and then running: 
+or by downloading it and then running:
 ```
 cabal configure
 cabal build
-cabal install 
+cabal install
 ```
-You can ignore the warnings from the build. 
+You can ignore the warnings from the build.
 
-A prebuilt hackage is available at http://hackage.haskell.org/package/NTRU. You may need to install some dependencies, such as llvm. 
+A prebuilt hackage is available at http://hackage.haskell.org/package/NTRU. You may need to install some dependencies, such as llvm.
 
-Please contact opensource@cyberpointllc.com with any questions. 
+Please contact opensource@cyberpointllc.com with any questions.
 
 Copyright 2013 CyberPoint International LLC.
 

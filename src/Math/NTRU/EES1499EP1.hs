@@ -1,14 +1,14 @@
 {- |
-	NTRU cryptographic system using the EES1499EP1 parameter set, for use at the 256-bit security level. 
+	NTRU cryptographic system using the EES1499EP1 parameter set, for use at the 256-bit security level.
 -}
 
-module Math.NTRU.EES1499EP1 (keyGen, encrypt, decrypt) where 
+module Math.NTRU.EES1499EP1 (keyGen, encrypt, decrypt) where
 
-	import qualified Math.NTRU as NTRU 
+	import qualified Math.NTRU as NTRU
 
-	-- | Generates a random PublicKey-PrivateKey pair 
+	-- | Generates a random PublicKey-PrivateKey pair
 	keyGen :: IO ([Integer], [Integer]) -- ^ A tuple representing (PublicKey, PrivateKey) where PrivateKey = 1 + pf, per <https://www.securityinnovation.com/uploads/Crypto/NTRU%20Enhancements%201.pdf enahncement#2>.
-	keyGen = NTRU.keyGen (NTRU.genParams "EES1499EP1") 
+	keyGen = NTRU.keyGen (NTRU.genParams "EES1499EP1")
 
 
 	-- | Encrypts a message with the given public key
